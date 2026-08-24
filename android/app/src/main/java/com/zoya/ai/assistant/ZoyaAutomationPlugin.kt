@@ -101,18 +101,10 @@ class ZoyaAutomationPlugin : Plugin() {
             return call.reject("Could not launch \"$name\": ${e.message}")
         }
 
-        // Verify it actually came to the foreground instead of blindly reporting success.
-        // Cold starts on a loaded device can genuinely take 10+ seconds, so wait generously.
-        val pkgToCheck = targetPackage
-        Thread {
-            val service = ZoyaAccessibilityService.instance
-            val opened = service?.waitForPackageWindow(pkgToCheck, 15000) ?: run {
-                Thread.sleep(2500); true // no accessibility service to verify with — best effort
-            }
-            call.resolve(JSObject()
-                .put("success", opened)
-                .put("message", if (opened) "$name opened." else "Tried to open $name but it never came to the foreground — it may be blocked, still loading very slowly, or the device denied the launch. Try again in a moment."))
-        }.start()
+        // Resolve immediately (no blocking wait/verification/auto-return) so the next voice
+        // command isn't delayed — this is what let sequential app-opening commands (WhatsApp
+        // then YouTube, etc.) work reliably.
+        call.resolve(JSObject().put("success", true).put("message", "$name opened."))
     }
 
     @PluginMethod

@@ -2,6 +2,7 @@ package com.zoya.ai.assistant
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
@@ -48,6 +49,23 @@ class ZoyaAccessibilityService : AccessibilityService() {
     fun goBack() = try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (e: Exception) { false }
     fun goHome() = try { performGlobalAction(GLOBAL_ACTION_HOME) } catch (e: Exception) { false }
     fun openRecents() = try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (e: Exception) { false }
+
+    /**
+     * Starts an activity using the AccessibilityService's OWN context rather than the calling
+     * app's context. Android 10+ blocks apps from starting new activities while they themselves
+     * are in the background (e.g. Zoya trying to open YouTube while WhatsApp already has focus)
+     * — this silently fails with a normal app context. A bound AccessibilityService is treated
+     * as a persistent, privileged system-interacting component and is generally exempt from
+     * this restriction, so routing the launch through it lets background app-switching work.
+     */
+    fun launchIntentElevated(intent: Intent): Boolean {
+        return try {
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     /** Finds the first element whose visible text/description contains [query] and taps it.
      *  Retries once after a short delay in case the screen is still settling. */

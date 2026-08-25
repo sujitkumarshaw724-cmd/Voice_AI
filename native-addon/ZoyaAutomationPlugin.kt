@@ -58,7 +58,7 @@ class ZoyaAutomationPlugin : Plugin() {
     fun openAccessibilitySettings(call: PluginCall) {
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
+        startActivityElevated(intent)
         call.resolve()
     }
 
@@ -96,7 +96,7 @@ class ZoyaAutomationPlugin : Plugin() {
             ?: return call.reject("Found \"$name\" but it has no launchable screen.")
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
-            context.startActivity(launchIntent)
+            startActivityElevated(launchIntent)
         } catch (e: Exception) {
             return call.reject("Could not launch \"$name\": ${e.message}")
         }
@@ -223,7 +223,7 @@ class ZoyaAutomationPlugin : Plugin() {
         val intent = Intent(Intent.ACTION_CALL)
         intent.data = Uri.parse("tel:$number")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
+        startActivityElevated(intent)
         call.resolve(JSObject().put("success", true))
     }
 
@@ -298,7 +298,7 @@ class ZoyaAutomationPlugin : Plugin() {
         intent.setPackage("com.whatsapp")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
-            context.startActivity(intent)
+            startActivityElevated(intent)
         } catch (e: Exception) {
             return call.reject("Could not open WhatsApp. Is it installed?")
         }
@@ -324,6 +324,19 @@ class ZoyaAutomationPlugin : Plugin() {
                 .put("success", sent)
                 .put("message", if (sent) "WhatsApp message sent." else "Message is pre-filled in WhatsApp but the Send button could not be found automatically by label/id. Call readScreen and tapAtCoordinates on the send icon (usually bottom-right of the compose bar) yourself."))
         }.start()
+    }
+
+    /**
+     * Starts [intent] preferring the AccessibilityService's elevated context, which is exempt
+     * from Android's restriction on backgrounded apps starting new activities — falls back to
+     * the plugin's normal context if the service isn't available. Use this for ALL app-opening
+     * intents so they keep working even when Zoya itself isn't currently in the foreground.
+     */
+    private fun startActivityElevated(intent: Intent) {
+        val launched = ZoyaAccessibilityService.instance?.launchIntentElevated(intent) ?: false
+        if (!launched) {
+            context.startActivity(intent)
+        }
     }
 
     private fun resolveContactNumber(name: String): String? {
@@ -360,7 +373,7 @@ class ZoyaAutomationPlugin : Plugin() {
         intent.setPackage("org.telegram.messenger")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
-            context.startActivity(intent)
+            startActivityElevated(intent)
         } catch (e: Exception) {
             return call.reject("Could not open Telegram. Is it installed?")
         }
@@ -397,12 +410,12 @@ class ZoyaAutomationPlugin : Plugin() {
         intent.setPackage("com.google.android.youtube")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
-            context.startActivity(intent)
+            startActivityElevated(intent)
         } catch (e: Exception) {
             // YouTube app not installed / intent failed — fall back to browser
             val fallback = Intent(Intent.ACTION_VIEW, uri)
             fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(fallback)
+            startActivityElevated(fallback)
         }
         call.resolve(JSObject().put("success", true))
     }
@@ -416,7 +429,7 @@ class ZoyaAutomationPlugin : Plugin() {
         val intent = Intent(Intent.ACTION_VIEW, uri)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
-            context.startActivity(intent)
+            startActivityElevated(intent)
             call.resolve(JSObject().put("success", true))
         } catch (e: Exception) {
             call.reject("Could not open search: ${e.message}")
@@ -433,11 +446,11 @@ class ZoyaAutomationPlugin : Plugin() {
         intent.setPackage("com.facebook.orca")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
-            context.startActivity(intent)
+            startActivityElevated(intent)
         } catch (e: Exception) {
             val fallback = Intent(Intent.ACTION_VIEW, uri)
             fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(fallback)
+            startActivityElevated(fallback)
         }
         call.resolve(JSObject().put("success", true))
     }

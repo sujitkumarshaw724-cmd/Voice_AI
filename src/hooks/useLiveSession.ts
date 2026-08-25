@@ -28,6 +28,8 @@ STAY SITUATIONALLY AWARE: before acting on a screen, if you're not sure what's c
 
 NEVER CLAIM SUCCESS WITHOUT CONFIRMATION: only tell the user something worked if the tool response actually says success:true. If a tool reports success:false or errors, do not say it worked — try an alternative approach (coordinates instead of text search, or vice versa; a longer wait; a different button label) up to a couple of times, and if it still doesn't work, tell the user honestly what you tried and that it didn't work, instead of pretending.
 
+MANDATORY VERIFICATION — NO EXCEPTIONS: after EVERY phone-automation action that changes what's on screen (tap, type, launch an app, scroll, swipe, send a message, etc.), you MUST call readScreen at least once afterward and check that the screen actually reflects the completed action BEFORE telling the user it's done. A tool returning success:true only means the low-level action was dispatched — it does NOT by itself prove the intended outcome actually happened (e.g. the right chat opened, the message field actually cleared, the right app is now visible). Never skip this check to save time, and never say "ho gaya"/"done" based only on a tool's success:true without having actually read the resulting screen first. If the screen doesn't show the expected result, treat it as not done yet and try again or tell the user honestly.
+
 NEVER TYPE PLACEHOLDER TEXT: when readScreen shows an input_field with a "placeholder" value (e.g. "Message", "Search"), that is ONLY the greyed-out hint shown when the field is empty — it is NOT real content and must NEVER be typed, repeated, or sent as if it were the user's intended text. Only ever type the actual content you mean to send/search for (the real message, the real contact name), never the field's placeholder/hint label.
 
 TAP RELATIVE/NEARBY ELEMENTS: not every element the user refers to has its own exact text to search for — they may describe something by its position relative to another element (e.g. "wo message jo 2:30 timestamp ke paas hai", "click next to X", "us naam ke bagal wala icon"). In these cases, don't try tapOnScreenText with a text that doesn't exist — instead call readScreen, find the REFERENCE element they mentioned (e.g. the "2:30" text) in the elements list, note its x/y/w/h, then estimate the target's coordinates relative to it (e.g. same row/similar y, offset in x) and use tapAtCoordinates directly. This works for any dynamic/changing content (chat lists, timestamps, notifications) since it doesn't depend on fixed text existing — always prefer this relative-coordinate reasoning over giving up when no exact text match exists.
@@ -62,6 +64,8 @@ RIGHT AFTER launchApp opens a new app (especially cold-started), the app can tak
 STAY SITUATIONALLY AWARE: before acting on a screen, if you're not sure what's currently showing, call readScreen — it always fetches fresh, current data, never assume it still looks like an earlier readScreen result from earlier in the conversation, especially after any tap/scroll/app-switch. After an important action, call readScreen again to verify what actually happened before telling the user it's done.
 
 NEVER CLAIM SUCCESS WITHOUT CONFIRMATION: only tell the user something worked if the tool response actually says success:true. If a tool reports success:false or errors, do not say it worked — try an alternative approach (coordinates instead of text search, or vice versa; a longer wait; a different button label) up to a couple of times, and if it still doesn't work, tell the user honestly what you tried and that it didn't work, instead of pretending.
+
+MANDATORY VERIFICATION — NO EXCEPTIONS: after EVERY phone-automation action that changes what's on screen (tap, type, launch an app, scroll, swipe, send a message, etc.), you MUST call readScreen at least once afterward and check that the screen actually reflects the completed action BEFORE telling the user it's done. A tool returning success:true only means the low-level action was dispatched — it does NOT by itself prove the intended outcome actually happened (e.g. the right chat opened, the message field actually cleared, the right app is now visible). Never skip this check to save time, and never say "ho gaya"/"done" based only on a tool's success:true without having actually read the resulting screen first. If the screen doesn't show the expected result, treat it as not done yet and try again or tell the user honestly.
 
 NEVER TYPE PLACEHOLDER TEXT: when readScreen shows an input_field with a "placeholder" value (e.g. "Message", "Search"), that is ONLY the greyed-out hint shown when the field is empty — it is NOT real content and must NEVER be typed, repeated, or sent as if it were the user's intended text. Only ever type the actual content you mean to send/search for (the real message, the real contact name), never the field's placeholder/hint label.
 
@@ -101,6 +105,8 @@ STAY SITUATIONALLY AWARE: before acting on a screen, if you're not sure what's c
 
 NEVER CLAIM SUCCESS WITHOUT CONFIRMATION: only tell the user something worked if the tool response actually says success:true. If a tool reports success:false or errors, do not say it worked — try an alternative approach (coordinates instead of text search, or vice versa; a longer wait; a different button label) up to a couple of times, and if it still doesn't work, tell the user honestly what you tried and that it didn't work, instead of pretending.
 
+MANDATORY VERIFICATION — NO EXCEPTIONS: after EVERY phone-automation action that changes what's on screen (tap, type, launch an app, scroll, swipe, send a message, etc.), you MUST call readScreen at least once afterward and check that the screen actually reflects the completed action BEFORE telling the user it's done. A tool returning success:true only means the low-level action was dispatched — it does NOT by itself prove the intended outcome actually happened (e.g. the right chat opened, the message field actually cleared, the right app is now visible). Never skip this check to save time, and never say "ho gaya"/"done" based only on a tool's success:true without having actually read the resulting screen first. If the screen doesn't show the expected result, treat it as not done yet and try again or tell the user honestly.
+
 NEVER TYPE PLACEHOLDER TEXT: when readScreen shows an input_field with a "placeholder" value (e.g. "Message", "Search"), that is ONLY the greyed-out hint shown when the field is empty — it is NOT real content and must NEVER be typed, repeated, or sent as if it were the user's intended text. Only ever type the actual content you mean to send/search for (the real message, the real contact name), never the field's placeholder/hint label.
 
 TAP RELATIVE/NEARBY ELEMENTS: not every element the user refers to has its own exact text to search for — they may describe something by its position relative to another element (e.g. "wo message jo 2:30 timestamp ke paas hai", "click next to X", "us naam ke bagal wala icon"). In these cases, don't try tapOnScreenText with a text that doesn't exist — instead call readScreen, find the REFERENCE element they mentioned (e.g. the "2:30" text) in the elements list, note its x/y/w/h, then estimate the target's coordinates relative to it (e.g. same row/similar y, offset in x) and use tapAtCoordinates directly. This works for any dynamic/changing content (chat lists, timestamps, notifications) since it doesn't depend on fixed text existing — always prefer this relative-coordinate reasoning over giving up when no exact text match exists.
@@ -117,6 +123,33 @@ export type SessionStatus = "disconnected" | "connecting" | "connected" | "error
 export type VoicePersona = "female" | "male" | "alex";
 
 /** Replays a single saved macro step by re-invoking the matching native automation call. */
+/**
+ * Code-level guard (not just prompt-based): checks the currently focused input field's
+ * placeholder against the text about to be typed. If they match (case-insensitive), typing
+ * is blocked — this prevents the AI from ever sending a field's greyed-out hint text
+ * (e.g. "Search", "Message") to ZoyaAutomation.typeText as if it were real content.
+ * Returns null if it's safe to type, or a rejection reason string if blocked.
+ */
+async function checkNotPlaceholder(text: string): Promise<string | null> {
+  try {
+    const res = await ZoyaAutomation.getScreenContent();
+    const parsed = JSON.parse(res.content);
+    const elements = Array.isArray(parsed) ? parsed : (parsed.elements || []);
+    const focused = elements.find((el: any) => el.type === "input_field" && el.focused);
+    const clean = (s: string) => s.trim().toLowerCase().replace(/^(search|message|type a message|type here|enter)[:\s]*/i, "").trim();
+    if (focused && focused.placeholder) {
+      const typedClean = clean(text);
+      const placeholderClean = clean(focused.placeholder);
+      if (typedClean === placeholderClean || text.trim().toLowerCase() === focused.placeholder.trim().toLowerCase()) {
+        return `Blocked: "${text}" is this field's placeholder/hint text, not real content — it must never be typed as-is. Provide the actual message/search text the user wants instead.`;
+      }
+    }
+  } catch {
+    // If the check itself fails, don't block typing on a diagnostic error.
+  }
+  return null;
+}
+
 async function executeMacroStep(step: MacroStep): Promise<{ success: boolean; message: string }> {
   const a = step.args || {};
   try {
@@ -819,12 +852,17 @@ export function useLiveSession() {
                   (async () => {
                     let success = false, responseMsg: string;
                     if (isNativeAndroid()) {
-                      try {
-                        const res = await ZoyaAutomation.typeText({ text });
-                        success = res.success;
-                        responseMsg = success ? `Appended "${text}".` : "No focused text field found to type into.";
-                      } catch (e: any) {
-                        responseMsg = `Could not type: ${e?.message || "accessibility service not enabled"}.`;
+                      const blockReason = await checkNotPlaceholder(text);
+                      if (blockReason) {
+                        responseMsg = blockReason;
+                      } else {
+                        try {
+                          const res = await ZoyaAutomation.typeText({ text });
+                          success = res.success;
+                          responseMsg = success ? `Appended "${text}".` : "No focused text field found to type into.";
+                        } catch (e: any) {
+                          responseMsg = `Could not type: ${e?.message || "accessibility service not enabled"}.`;
+                        }
                       }
                     } else {
                       responseMsg = "Typing requires the installed Android app with Accessibility enabled (not available in browser/dev mode).";
@@ -840,12 +878,17 @@ export function useLiveSession() {
                   (async () => {
                     let success = false, responseMsg: string;
                     if (isNativeAndroid()) {
-                      try {
-                        const res = await ZoyaAutomation.replaceText({ text });
-                        success = res.success;
-                        responseMsg = success ? `Field replaced with "${text}".` : "No focused text field found to replace.";
-                      } catch (e: any) {
-                        responseMsg = `Could not replace text: ${e?.message || "accessibility service not enabled"}.`;
+                      const blockReason = await checkNotPlaceholder(text);
+                      if (blockReason) {
+                        responseMsg = blockReason;
+                      } else {
+                        try {
+                          const res = await ZoyaAutomation.replaceText({ text });
+                          success = res.success;
+                          responseMsg = success ? `Field replaced with "${text}".` : "No focused text field found to replace.";
+                        } catch (e: any) {
+                          responseMsg = `Could not replace text: ${e?.message || "accessibility service not enabled"}.`;
+                        }
                       }
                     } else {
                       responseMsg = "This requires the installed Android app with Accessibility enabled.";

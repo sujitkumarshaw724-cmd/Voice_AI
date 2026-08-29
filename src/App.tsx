@@ -12,6 +12,7 @@ import { useLiveSession } from "./hooks/useLiveSession";
 import { MemoryModal } from "./components/MemoryModal";
 import { MacroModal } from "./components/MacroModal";
 import { VoicePersonaModal } from "./components/VoicePersonaModal";
+import { ZoyaAutomation, isNativeAndroid } from "./lib/androidAutomation";
 
 const Visualizer = ({ active, color }: { active: boolean; color: string }) => {
   return (
@@ -136,6 +137,24 @@ export default function App() {
     }
 
     return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+  }, []);
+
+  // One-time prompt for "Display over other apps" — Android 14+ silently blocks a
+  // backgrounded app from opening another app unless this permission is granted.
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    (async () => {
+      try {
+        const { granted } = await ZoyaAutomation.isOverlayPermissionGranted();
+        const alreadyAsked = localStorage.getItem("zoya_overlay_perm_asked");
+        if (!granted && !alreadyAsked) {
+          localStorage.setItem("zoya_overlay_perm_asked", "true");
+          await ZoyaAutomation.requestOverlayPermission();
+        }
+      } catch {
+        // native bridge not ready yet or method unavailable — ignore silently
+      }
+    })();
   }, []);
 
   const handleInstallPWA = async () => {

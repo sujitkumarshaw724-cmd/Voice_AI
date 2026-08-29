@@ -124,30 +124,37 @@ export type VoicePersona = "female" | "male" | "alex";
 
 /** Replays a single saved macro step by re-invoking the matching native automation call. */
 /**
- * Code-level guard (not just prompt-based): checks the currently focused input field's
- * placeholder against the text about to be typed. If they match (case-insensitive), typing
- * is blocked — this prevents the AI from ever sending a field's greyed-out hint text
- * (e.g. "Search", "Message") to ZoyaAutomation.typeText as if it were real content.
- * Returns null if it's safe to type, or a rejection reason string if blocked.
+ * Code-level guard (not just prompt-based): reads the currently focused input field's
+ * placeholder and, if the text about to be typed STARTS WITH that placeholder (even
+ * concatenated with no space, e.g. "MessageHii", "SearchShyam"), strips the placeholder
+ * prefix off automatically before typing. This fixes the AI accidentally prepending a
+ * field's greyed-out hint text to the real content instead of typing only the real content.
  */
-async function checkNotPlaceholder(text: string): Promise<string | null> {
+async function cleanPlaceholderPrefix(text: string): Promise<string> {
   try {
     const res = await ZoyaAutomation.getScreenContent();
     const parsed = JSON.parse(res.content);
     const elements = Array.isArray(parsed) ? parsed : (parsed.elements || []);
     const focused = elements.find((el: any) => el.type === "input_field" && el.focused);
-    const clean = (s: string) => s.trim().toLowerCase().replace(/^(search|message|type a message|type here|enter)[:\s]*/i, "").trim();
     if (focused && focused.placeholder) {
-      const typedClean = clean(text);
-      const placeholderClean = clean(focused.placeholder);
-      if (typedClean === placeholderClean || text.trim().toLowerCase() === focused.placeholder.trim().toLowerCase()) {
-        return `Blocked: "${text}" is this field's placeholder/hint text, not real content — it must never be typed as-is. Provide the actual message/search text the user wants instead.`;
+      const placeholder = String(focused.placeholder).trim();
+      if (placeholder.length > 0) {
+        const escaped = placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const prefixRegex = new RegExp("^\\s*" + escaped + "\\s*", "i");
+        if (prefixRegex.test(text)) {
+          const stripped = text.replace(prefixRegex, "").trim();
+          if (stripped.length > 0) return stripped;
+        }
+        // Exact full match (nothing but the placeholder) — nothing real to type.
+        if (text.trim().toLowerCase() === placeholder.toLowerCase()) {
+          return "";
+        }
       }
     }
   } catch {
-    // If the check itself fails, don't block typing on a diagnostic error.
+    // If the check itself fails, don't block typing — return the original text.
   }
-  return null;
+  return text;
 }
 
 async function executeMacroStep(step: MacroStep): Promise<{ success: boolean; message: string }> {
@@ -749,11 +756,13 @@ export function useLiveSession() {
                   }));
 
                   (async () => {
+                    let success = false;
                     let responseMsg: string;
                     if (isNativeAndroid()) {
                       try {
-                        await ZoyaAutomation.launchApp({ appName });
-                        responseMsg = `Successfully launched ${appName} on the device.`;
+                        const res = await ZoyaAutomation.launchApp({ appName });
+                        success = res.success;
+                        responseMsg = success ? `Successfully launched ${appName} on the device.` : `Could not confirm ${appName} launched.`;
                       } catch (e: any) {
                         responseMsg = `Could not launch ${appName}: ${e?.message || "app not installed"}.`;
                       }
@@ -770,11 +779,12 @@ export function useLiveSession() {
                       };
                       const targetUrl = appUrls[appName.toLowerCase()] || `https://www.google.com/search?q=${encodeURIComponent(appName)}`;
                       window.open(targetUrl, "_blank");
+                      success = true;
                       responseMsg = `Opened the web version of ${appName} (running in browser/dev mode, not the installed Android app).`;
                     }
                     sessionPromise.then(session => {
                       session.sendToolResponse({
-                        functionResponses: [{ name: "launchAndroidApp", response: { success: true, message: responseMsg }, id: call.id }]
+                        functionResponses: [{ name: "launchAndroidApp", response: { success, message: responseMsg }, id: call.id }]
                       });
                     });
                   })();
@@ -848,18 +858,20 @@ export function useLiveSession() {
                     });
                   })();
                 } else if (call.name === "typeIntoField") {
-                  const text = (call.args as any).text;
+                  const rawText = (call.args as any).text;
                   (async () => {
                     let success = false, responseMsg: string;
                     if (isNativeAndroid()) {
-                      const blockReason = await checkNotPlaceholder(text);
-                      if (blockReason) {
-                        responseMsg = blockReason;
+                      const text = await cleanPlaceholderPrefix(rawText);
+                      if (text.length === 0) {
+                        responseMsg = `"${rawText}" was just this field's placeholder text with nothing real to type — provide the actual message/search content instead.`;
                       } else {
                         try {
                           const res = await ZoyaAutomation.typeText({ text });
                           success = res.success;
-                          responseMsg = success ? `Appended "${text}".` : "No focused text field found to type into.";
+                          responseMsg = success
+                            ? (text !== rawText ? `Appended "${text}" (stripped placeholder prefix from "${rawText}").` : `Appended "${text}".`)
+                            : "No focused text field found to type into.";
                         } catch (e: any) {
                           responseMsg = `Could not type: ${e?.message || "accessibility service not enabled"}.`;
                         }
@@ -874,18 +886,20 @@ export function useLiveSession() {
                     });
                   })();
                 } else if (call.name === "replaceTextInField") {
-                  const text = (call.args as any).text;
+                  const rawText = (call.args as any).text;
                   (async () => {
                     let success = false, responseMsg: string;
                     if (isNativeAndroid()) {
-                      const blockReason = await checkNotPlaceholder(text);
-                      if (blockReason) {
-                        responseMsg = blockReason;
+                      const text = await cleanPlaceholderPrefix(rawText);
+                      if (text.length === 0) {
+                        responseMsg = `"${rawText}" was just this field's placeholder text with nothing real to type — provide the actual content instead.`;
                       } else {
                         try {
                           const res = await ZoyaAutomation.replaceText({ text });
                           success = res.success;
-                          responseMsg = success ? `Field replaced with "${text}".` : "No focused text field found to replace.";
+                          responseMsg = success
+                            ? (text !== rawText ? `Field replaced with "${text}" (stripped placeholder prefix from "${rawText}").` : `Field replaced with "${text}".`)
+                            : "No focused text field found to replace.";
                         } catch (e: any) {
                           responseMsg = `Could not replace text: ${e?.message || "accessibility service not enabled"}.`;
                         }

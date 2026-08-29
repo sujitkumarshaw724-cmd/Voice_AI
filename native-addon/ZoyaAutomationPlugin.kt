@@ -62,6 +62,30 @@ class ZoyaAutomationPlugin : Plugin() {
         call.resolve()
     }
 
+    /**
+     * Checks the "Display over other apps" permission. On Android 10+, this permission
+     * (once granted) is one of the OS's recognized exemptions from the restriction that
+     * blocks a backgrounded app from starting a new activity — without it, asking Zoya to
+     * open App B while App A is in the foreground can silently fail on Android 14+.
+     */
+    @PluginMethod
+    fun isOverlayPermissionGranted(call: PluginCall) {
+        val granted = Settings.canDrawOverlays(context)
+        call.resolve(JSObject().put("granted", granted))
+    }
+
+    @PluginMethod
+    fun requestOverlayPermission(call: PluginCall) {
+        try {
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Some OEMs route this differently — ignore, user can grant manually via app settings.
+        }
+        call.resolve()
+    }
+
     @PluginMethod
     fun launchApp(call: PluginCall) {
         val name = call.getString("appName")?.trim() ?: return call.reject("appName required")

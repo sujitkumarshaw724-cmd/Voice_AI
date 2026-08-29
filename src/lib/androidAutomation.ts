@@ -3,6 +3,8 @@ import { registerPlugin, Capacitor } from "@capacitor/core";
 export interface ZoyaAutomationPlugin {
   isAccessibilityServiceEnabled(): Promise<{ enabled: boolean }>;
   openAccessibilitySettings(): Promise<void>;
+  isOverlayPermissionGranted(): Promise<{ granted: boolean }>;
+  requestOverlayPermission(): Promise<void>;
   launchApp(options: { appName: string }): Promise<{ success: boolean }>;
   tapByText(options: { text: string }): Promise<{ success: boolean }>;
   tapAtCoordinates(options: { x: number; y: number }): Promise<{ success: boolean }>;
